@@ -1,0 +1,34 @@
+#!/bin/bash -l
+# CPU experiments up to 256 MPI ranks (one rank per core), spread over 8 nodes of 32 cores.
+#   submit from the project directory:   cd /scratch/e1092104/3 && qsub scripts/job_cpu.pbs
+#   watch:                               qstat -u $USER ;  tail -f results/run_cpu.log
+#
+# Vanda CPU nodes have 64 or 72 cores and 500 GB, so 4 chunks of 64 cores = 256 ranks on 4 nodes.
+# The default memory of the queue is only 20 GB, so mem is requested explicitly (the weak-scaling
+# runs need about 0.4 GB per rank). Without -q the job is routed by queue "auto" to batch_cpu, which
+# allows up to 720 cores and 10 nodes per job; it is charged to the personal budget (10,000 CPU hours
+# per year, no -P needed). The free tier (-q auto_free) is limited to 1-2 nodes, too small for 256 cores.
+# Between nodes the network is 100G Ethernet (not InfiniBand): expect a drop of the efficiency
+# when going from 64 ranks (one node) to 128 and 256 ranks (several nodes).
+# The script measures only the rank counts for which enough cores were granted.
+#PBS -N jacobi_cpu
+#PBS -l select=4:ncpus=64:mpiprocs=64:ompthreads=1:mem=100gb
+#PBS -l place=scatter
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+cd "$PBS_O_WORKDIR" || exit 1
+module load openmpi4/gcc/4.1.8
+
+echo "job $PBS_JOBID started $(date): $(wc -l < "$PBS_NODEFILE") cores on $(sort -u "$PBS_NODEFILE" | wc -l) nodes"
+sort -u "$PBS_NODEFILE"
+echo "mpirun: $(command -v mpirun)"
+
+# 1. build + validation first: stop here (and save the credits) if something is wrong
+bash scripts/run_cpu.sh validate
+python3 analysis/validate.py "${RES:-results}" || { echo "VALIDATION FAILED, stopping"; exit 1; }
+
+# 2. everything else (the validate stage is already marked done and is skipped)
+bash scripts/run_cpu.sh
+
+echo "job finished $(date)"

@@ -1,0 +1,30 @@
+#!/bin/bash -l
+# MPI+CUDA experiments. Starts by itself as soon as 2 GPUs of one node are free.
+#   submit from the project directory:   cd /scratch/e1092104/3 && qsub scripts/job_gpu.pbs
+#   watch:                               qstat -u $USER ;  tail -f results/run_gpu.log
+# (same resources as: qsub -I -l select=2:ngpus=1 -l walltime=08:00:00 -l place=pack)
+#PBS -N jacobi_gpu
+#PBS -l select=2:ngpus=1
+#PBS -l place=pack
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+cd "$PBS_O_WORKDIR" || exit 1
+# CUDA-aware MPI (recommended by the instructor); it ships its own CUDA compiler,
+# fall back to the CUDA toolkit module if nvcc is not found
+module load nvhpc-hpcx-cuda12/26.1
+command -v nvcc >/dev/null || module load cuda12.4/toolkit/12.4.1
+
+echo "job $PBS_JOBID on $(hostname), $(nvidia-smi -L | wc -l) GPUs, started $(date)"
+module list 2>&1
+echo "nvcc: $(command -v nvcc)   mpirun: $(command -v mpirun)"
+ompi_info --parsable --all 2>/dev/null | grep mpi_built_with_cuda_support:value
+
+# 1. build + validation first: stop here (and save the credits) if something is wrong
+bash scripts/run_gpu.sh validate
+python3 analysis/validate.py "${RES:-results}" || { echo "VALIDATION FAILED, stopping"; exit 1; }
+
+# 2. everything else (the validate stage is already marked done and is skipped)
+bash scripts/run_gpu.sh
+
+echo "job finished $(date)"
